@@ -1,96 +1,72 @@
-# Deployment Guide
+#!/bin/bash
 
-## Prerequisites
-- Kubernetes cluster (e.g., GKE, EKS, or Minikube)
-- kubectl configured
-- Docker installed
-- MongoDB Atlas account (or self-hosted MongoDB)
+# --- Configuration ---
+# PLEASE FILL IN THESE VALUES BEFORE RUNNING THE SCRIPT
+export YOUR_REGISTRY="your-docker-registry" # e.g., "docker.io/your-username" or your private registry
+export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
+export S3_BUCKET_NAME="your-s3-bucket-name"
 
-## Deployment Steps
+# --- Script Start ---
+set -e # Exit immediately if a command exits with a non-zero status.
 
-1. **Create Kubernetes Secrets**
-```bash
-# Create MongoDB secret
-kubectl create secret generic mongodb-secret \
-  --from-literal=uri='mongodb+srv://<username>:<password>@<cluster>.mongodb.net/replit-clone'
+echo "🚀 Starting CloudIDE Deployment..."
 
-# Create Redis secret (if using Redis)
-kubectl create secret generic redis-secret \
-  --from-literal=uri='redis://<host>:<port>'
-```
+# --- 1. Create Kubernetes Secrets ---
+echo "🔑 Creating Kubernetes secret for AWS..."
+kubectl create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+  --from-literal=AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+  --from-literal=S3_BUCKET_NAME=${S3_BUCKET_NAME} \
+  --dry-run=client -o yaml | kubectl apply -f -
 
-2. **Build and Push Docker Images**
-```bash
-# Build the base image
-docker build -t replit-clone-base:latest ./runner
+echo "✅ AWS secret created."
+echo "---"
 
-# Tag and push to your container registry
-docker tag replit-clone-base:latest <your-registry>/replit-clone:latest
-docker push <your-registry>/replit-clone:latest
-```
+# --- 2. Build and Push Docker Images ---
+echo "🐳 Building and pushing Docker images..."
 
-3. **Deploy to Kubernetes**
-```bash
-# Apply the Kubernetes configurations
-kubectl apply -f k8s/deployment.yaml
+# Define services to build
+services=("frontend" "orchestrator-simple" "runner" "init-service")
 
-# Verify deployment
-kubectl get pods
-kubectl get services
-```
+for service in "${services[@]}"; do
+    IMAGE_NAME="${YOUR_REGISTRY}/cloudide-${service}:latest"
+    echo "Building ${service} -> ${IMAGE_NAME}"
+    docker build -t ${IMAGE_NAME} ./${service}
+    echo "Pushing ${IMAGE_NAME}"
+    docker push ${IMAGE_NAME}
+    echo "✅ Image for ${service} pushed."
+done
 
-4. **Access the Application**
-```bash
-# Get the external IP
-kubectl get service replit-clone-service
-```
+echo "✅ All Docker images have been built and pushed."
+echo "---"
 
-## Monitoring
 
-1. **View Logs**
-```bash
-# View pod logs
-kubectl logs -f deployment/replit-clone
+# --- 3. Update Kubernetes Deployment with New Images ---
+echo "📝 Updating Kubernetes deployment file with your registry..."
+# This command uses `sed` to replace the placeholder `cl0ud08` with your registry.
+# It works on both macOS and Linux.
+sed -i.bak "s|cl0ud08|${YOUR_REGISTRY}|g" k8s/deployment.yaml
 
-# View specific pod logs
-kubectl logs -f <pod-name>
-```
+echo "✅ k8s/deployment.yaml updated."
+echo "---"
 
-2. **Monitor Scaling**
-```bash
-# Check HPA status
-kubectl get hpa
 
-# Check pod metrics
-kubectl top pods
-```
+# --- 4. Deploy to Kubernetes ---
+echo "🚢 Deploying all resources to Kubernetes..."
+kubectl apply -f k8s/
 
-## Troubleshooting
+echo "✅ All Kubernetes resources applied."
+echo "---"
 
-1. **Check Pod Status**
-```bash
-kubectl describe pod <pod-name>
-```
 
-2. **Check Service Status**
-```bash
-kubectl describe service replit-clone-service
-```
-
-3. **Check Events**
-```bash
-kubectl get events --sort-by='.lastTimestamp'
-```
-
-## Scaling
-
-The application automatically scales based on CPU and memory usage:
-- CPU threshold: 70%
-- Memory threshold: 80%
-- Min replicas: 3
-- Max replicas: 10
-
-To manually scale:
-```bash
-kubectl scale deployment CloudIDE --replicas=5
-``` 
+# --- 5. Final Instructions ---
+echo "🎉 Deployment initiated successfully!"
+echo ""
+echo "To monitor the status, run the following commands:"
+echo "  kubectl get pods -w"
+echo "  kubectl get services"
+echo ""
+echo "Once the 'frontend-service' has an EXTERNAL-IP, you can access the application at that address."
+echo "  kubectl get service frontend-service"
+echo ""
