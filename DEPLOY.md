@@ -92,5 +92,5 @@ The application automatically scales based on CPU and memory usage:
 
 To manually scale:
 ```bash
-kubectl scale deployment replit-clone --replicas=5
+kubectl scale deployment CloudIDE --replicas=5
 ``` 
